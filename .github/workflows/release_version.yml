@@ -1,0 +1,69 @@
+name: Release Version
+env:
+  DOTNET_VERSION: '8.x'
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+          
+      - name: Restore dependencies
+        working-directory: Bank
+        run: dotnet restore
+        
+      - name: Build
+        working-directory: Bank
+        run: dotnet build --no-restore --configuration Release
+        
+      - name: Run Tests
+        working-directory: Bank
+        run: dotnet test --no-build --configuration Release --logger "trx;LogFileName=test-results.trx"
+        
+      - name: Get version from tag
+        id: get_version
+        run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+        
+      - name: Pack NuGet package
+        working-directory: Bank/Bank.WebApi
+        run: dotnet pack --configuration Release -p:PackageVersion=${{ steps.get_version.outputs.VERSION || '1.0.0' }} --output ../nupkgs
+        
+      - name: Publish Release Build
+        working-directory: Bank
+        run: dotnet publish Bank.WebApi/Bank.WebApi.csproj --configuration Release --output ./publish
+        
+      - name: Zip Release
+        working-directory: Bank
+        run: zip -r Bank.WebApi-${{ steps.get_version.outputs.VERSION || '1.0.0' }}.zip ./publish
+        
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            Bank/Bank.WebApi-${{ steps.get_version.outputs.VERSION || '1.0.0' }}.zip
+            Bank/nupkgs/*.nupkg
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          
+      - name: Push to GitHub Packages
+        working-directory: Bank
+        run: dotnet nuget push ./nupkgs/*.nupkg --api-key ${{ secrets.GITHUB_TOKEN }} --source "https://nuget.pkg.github.com/${{ github.repository_owner }}/index.json" --skip-duplicate
+

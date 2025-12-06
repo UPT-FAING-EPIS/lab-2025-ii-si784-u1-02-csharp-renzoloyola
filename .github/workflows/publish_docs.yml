@@ -1,0 +1,61 @@
+name: Publish Documentation
+env:
+  DOTNET_VERSION: '8.x'
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
+jobs:
+  build-docs:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+          
+      - name: Install DocFX
+        run: dotnet tool install -g docfx
+        
+      - name: Build Solution
+        working-directory: Bank
+        run: dotnet build
+        
+      - name: Generate API Metadata
+        working-directory: Bank
+        run: docfx metadata docfx.json
+        
+      - name: Build Documentation
+        working-directory: Bank
+        run: docfx build docfx.json
+        
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: Bank/_site
+
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    needs: build-docs
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
+
